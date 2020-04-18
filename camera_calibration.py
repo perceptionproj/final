@@ -3,7 +3,7 @@ import cv2
 import glob
 import matplotlib.pyplot as plt
 
-cam = '../Stereo_calibration_images'
+cam = 'mynteye'
 images_left = glob.glob(cam + '/left*.png')
 images_right = glob.glob(cam + '/right*.png')
 
@@ -56,8 +56,8 @@ for fname in images_right:
         cv2.waitKey(5)
 cv2.destroyAllWindows()
 
-
 ret_l, mtx_l, dist_l, rvecs_l, tvecs_l = cv2.calibrateCamera(objpoints_l, imgpoints_l, gray.shape[::-1], None, None, flags = cv2.CALIB_RATIONAL_MODEL)
+
 img_l = cv2.imread(cam + '/left-0001.png')
 h,  w = img_l.shape[:2]
 newcameramtx_l, roi_l = cv2.getOptimalNewCameraMatrix(mtx_l,dist_l,(w,h),1,(w,h))
@@ -67,13 +67,6 @@ img_r = cv2.imread(cam + '/right-0001.png')
 h,  w = img_r.shape[:2]
 newcameramtx_r, roi_r = cv2.getOptimalNewCameraMatrix(mtx_r,dist_r,(w,h),1,(w,h))
 
-# Saving coefficients
-dir = "camera_params/"
-np.save(dir + "mtx_l", mtx_l)
-np.save(dir + "dist_l", dist_l)
-np.save(dir + "mtx_r", mtx_r)
-np.save(dir + "dist_r", dist_r)
-
 # undistort
 img_l_undist = cv2.undistort(img_l, mtx_l, dist_l, None, newcameramtx_l)
 img_l = cv2.imread(cam + '/left-0001.png')
@@ -82,12 +75,5 @@ img_l = cv2.imread(cam + '/left-0001.png')
 # cv2.waitKey()
 
 cv2.imshow('undistorted image', img_l_undist)
-cv2.waitKey()
-
-# crop the image
-x,y,w,h = roi_l
-img_l_undist_crop = img_l_undist[y:y+h, x:x+w]
-# plt.figure(figsize=(10,10))
-cv2.imshow('cropped_undist', img_l_undist_crop)
 cv2.waitKey()
 cv2.destroyAllWindows()
