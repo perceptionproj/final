@@ -14,7 +14,7 @@ n_images = len(images_right)
 images_right.sort()
 images_left.sort()
 
-# %% INITIALIZE OBJECT POINTS
+# %% INITIALIZE CHECKERBOARD OBJECT POINTS
 nb_vertical = 9
 nb_horizontal = 6
 
@@ -47,23 +47,25 @@ for i in range(n_images):
         cv2.putText(img_l, "Left Camera", (50,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
         cv2.putText(img_r, "Right Camera", (50,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
         img_l_r = np.vstack((img_l,img_r))
-        cv2.namedWindow("Calibration Pattern (Left and Right Cameras)", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Calibration Pattern (Left and Right Cameras)", 600, 600)
-        cv2.imshow("Calibration Pattern (Left and Right Cameras)",img_l_r)
+        windowname_1 = "Calibration Pattern (Left and Right Camera)"
+        cv2.namedWindow(windowname_1, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(windowname_1, 600, 600)
+        cv2.imshow(windowname_1,img_l_r)
         cv2.waitKey(5)
 cv2.destroyAllWindows()
 
-# %% CALIBRATECAMERA - COMPUTE AND SAVE (INTRINSIC) CAMERA MATRICES AND DISTORTION COEFFICIENTS OF EACH CAMERA INDIVIDUALLY
+# %% STEREOCALIBRATE - COMPUTE AND SAVE (INTRINSIC) CAMERA MATRICES, DISTORTION COEFFICIENTS, ROTATION AND TRANSLATION BETWEEN THE TWO CAMERAS AND REPROJECTION ERROR
 assert (img_l.shape[:2] == img_r.shape[:2])
-h,  w = img_l.shape[:2]
+h, w = img_l.shape[:2]
 
-ret_l, mtx_l, dist_l, rvecs_l, tvecs_l = cv2.calibrateCamera(objpoints, imgpoints_l, (w,h), None, None, flags = cv2.CALIB_RATIONAL_MODEL)
+term_crit_sc = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 100, 1e-5)
+flags_sc = cv2.CALIB_RATIONAL_MODEL
+ret_stereo,  mtx_l, dist_l, mtx_r, dist_r, mtx_R, mtx_T, mtx_E, mtx_F = cv2.stereoCalibrate(objpoints, imgpoints_l, imgpoints_r, None, None, None, None, (w,h), flags=flags_sc, criteria=term_crit_sc)
+
 mtx_l_new, roi_cal_l = cv2.getOptimalNewCameraMatrix(mtx_l,dist_l,(w,h),1,(w,h))
-
-ret_r, mtx_r, dist_r, rvecs_r, tvecs_r = cv2.calibrateCamera(objpoints, imgpoints_r, (w,h), None, None, flags = cv2.CALIB_RATIONAL_MODEL)
 mtx_r_new, roi_cal_r = cv2.getOptimalNewCameraMatrix(mtx_r,dist_r,(w,h),1,(w,h))
 
-# Saving camera matrices and distortion coefficients
+# save calibration matrices for future use
 dir = "../calibration/calibration_matrix/"
 np.save(dir + "camera_matrix_l", mtx_l)
 np.save(dir + "distortion_coeff_l", dist_l)
@@ -71,11 +73,6 @@ np.save(dir + "camera_matrix_l_new", mtx_l_new)
 np.save(dir + "camera_matrix_r", mtx_r)
 np.save(dir + "distortion_coeff_r", dist_r)
 np.save(dir + "camera_matrix_r_new", mtx_r_new)
-
-# %% STEREOCALIBRATE - COMPUTE AND SAVE ROTATION AND TRANSLATION BETWEEN THE TWO CAMERAS, USING THE DISTORTION COEFFICIENTS AND CAMERA MATRICES PROVIDED BY CALIBRATECAMERA
-term_crit = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 100, 1e-5)
-ret_stereo, _, _, _, _, mtx_R, mtx_T, mtx_E, mtx_F = cv2.stereoCalibrate(objpoints, imgpoints_l, imgpoints_r, mtx_l, dist_l, mtx_r, dist_r, (w,h), flags=cv2.CALIB_FIX_INTRINSIC, criteria=term_crit)
-
 np.save(dir + "rotation_l_r", mtx_R)
 np.save(dir + "translation_l_r", mtx_T)
 np.save(dir + "essential_matrix", mtx_E)
