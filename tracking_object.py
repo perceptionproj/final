@@ -32,12 +32,6 @@ mtx_P_r = np.load(dir + "projection_matrix_r.npy")
 
 #%% MOTION DETECTION AND BACKGROUND MASK
 
-# Create VideoWriter object in oder to record the result
-img_sample = cv2.imread(images_left[0])
-frame_height,  frame_width = img_sample.shape[:2]
-object_detection = cv2.VideoWriter('Object_Detection.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 20, (frame_width,frame_height))
-motion_detection = cv2.VideoWriter('Motion_Detection.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 20, (frame_width,frame_height))
-
 firstFrame = None
 min_area = 4000
 
@@ -74,10 +68,6 @@ for i in range(n_images):
     cv2.putText(frameDelta, "Delta Frame", (50,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
     cv2.putText(thresh, "Thresh", (50,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
 
-    object_detection.write(frame)
-    thresh_video = cv2.cvtColor(thresh.copy(), cv2.COLOR_GRAY2BGR)
-    motion_detection.write(thresh_video)
-    
     output = np.hstack((frameDelta, thresh))
     cv2.namedWindow("Motion Detection", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Motion Detection", 1300, 500)
@@ -88,6 +78,4 @@ for i in range(n_images):
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-object_detection.release()
-motion_detection.release()
 cv2.destroyAllWindows()
