@@ -4,7 +4,7 @@ import glob
 import imutils
 
 #%% LOAD IMAGES
-dataset = '../Final_Project_GitHub/datasets/conveyor_without_occlusions'
+dataset = '../datasets/conveyor_without_occlusions'
 images_left = glob.glob(dataset + '/left/*.png')
 images_right = glob.glob(dataset + '/right/*.png')
 
@@ -16,7 +16,7 @@ images_left.sort()
 
 #%% LOAD MATRICES AND PARAMETERS
 
-dir = "../Final_Project_GitHub/calibration/calibration_matrix/"
+dir = "../calibration/calibration_matrix/"
 mtx_l = np.load(dir + "camera_matrix_l.npy")
 dist_l = np.load(dir + "distortion_coeff_l.npy")
 mtx_l_new = np.load(dir + "camera_matrix_l_new.npy")
