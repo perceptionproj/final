@@ -31,10 +31,15 @@ mtx_P_l = np.load(dir_params + "projection_matrix_l.npy")
 mtx_P_r = np.load(dir_params + "projection_matrix_r.npy")
 
 #%% MOTION DETECTION
+h, w = cv2.imread(images_left[0]).shape[:2]
 
 # vector representing the direction of the conveyor belt
 conveyor_direction = np.array([[-667,225]])
 conveyor_direction = conveyor_direction / np.linalg.norm(conveyor_direction)
+
+# initialize region of interest
+roi = [(0,0),(w,h)]
+offset = 40
 
 # for each frame of the video:
 for i in range(n_images):
@@ -56,15 +61,14 @@ for i in range(n_images):
 		# create vector containing each feature's motion vector
 		flow_vectors = features_flow_good-features_prev_good
 		
-		# second outlier removal: only keep points which moved and whose direction is aligned with the conveyor belt
+		# second outlier removal: only keep points which moved, and whose direction is aligned with the conveyor belt's direction
 		flow_vectors_magnitude = np.apply_along_axis(np.linalg.norm, 1, flow_vectors.squeeze())
 		flow_vectors_projection = np.einsum("ij,ij->i", flow_vectors.squeeze(), np.repeat(conveyor_direction,flow_vectors.shape[0],axis=0))
 		mask2 = np.logical_and(flow_vectors_magnitude>1, flow_vectors_projection>0.95*flow_vectors_magnitude)
 		features_flow_good = features_flow_good[mask2]
 		features_prev_good = features_prev_good[mask2]
 		
-		# if at least 5 points passed the first 2 tests
-		if (features_flow_good.shape[0] > 4):			
+		if (features_flow_good.shape[0] >=5):
 			# third outlier removal: remove points whose average distance to the closest neighbours is too big
 			nbrs = NearestNeighbors(n_neighbors=int(features_flow_good.shape[0]/2), algorithm='ball_tree').fit(features_flow_good.squeeze())
 			distances, _ = nbrs.kneighbors(features_flow_good.squeeze())
@@ -72,12 +76,23 @@ for i in range(n_images):
 			mask3 = distances_avg < 100
 			features_flow_good = features_flow_good[mask3]
 			features_prev_good = features_prev_good[mask3]
+		
+		# if at least 5 points passed all the tests
+		if (features_flow_good.shape[0] >= 5):
+			# update region of interest			
+			roi = [(int(features_flow_good[:,:,0].min()-offset),int(features_flow_good[:,:,1].min()-offset)),(int(features_flow_good[:,:,0].max()+offset),int(features_flow_good[:,:,1].max()+offset))]
 			
-			# display points that passed all the tests
+			# color points that passed all the tests
 			for i in range(features_flow_good.shape[0]):			
 				cv2.circle(frame_rgb_curr, (features_flow_good[i][0][0], features_flow_good[i][0][1]), 5, (0, 255, 0), -1)
 				
-			
+		else:
+			# (in the future, will use kalman filter to update the region of interest)
+			roi = [(0,0),(w,h)]
+		
+		# color rectangle of region of interest
+		cv2.rectangle(frame_rgb_curr, roi[0], roi[1], (0,0,255), 3)
+		# display result
 		cv2.imshow("Tracking", frame_rgb_curr)
 	
 	# save current image and features
