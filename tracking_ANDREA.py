@@ -2,6 +2,7 @@
 import numpy as np
 import cv2
 import glob
+from sklearn.neighbors import NearestNeighbors
 
 # %% LOAD IMAGES
 dir_dataset = '../datasets/conveyor_without_occlusions'
@@ -31,28 +32,55 @@ mtx_P_r = np.load(dir_params + "projection_matrix_r.npy")
 
 #%% MOTION DETECTION
 
+# vector representing the direction of the conveyor belt
+conveyor_direction = np.array([[-667,225]])
+conveyor_direction = conveyor_direction / np.linalg.norm(conveyor_direction)
+
+# for each frame of the video:
 for i in range(n_images):
-	
 	# grab current frame and extract features
 	frame_rgb_curr = cv2.imread(images_left[i])
 	frame_gray_curr = cv2.cvtColor(frame_rgb_curr, cv2.COLOR_RGB2GRAY)
 	features_curr = cv2.goodFeaturesToTrack(frame_gray_curr, maxCorners=1000, qualityLevel=0.01, minDistance=5)
 
+	# if it's not the first frame:
 	if (i>0):
-		# calculate optical flow
+		# find previous frame's features in the current frame
 		features_flow, flow_status, flow_error = cv2.calcOpticalFlowPyrLK(frame_gray_prev, frame_gray_curr, features_prev, None)
-		# display moving points in green and static points in red
-		for i in range(len(features_flow)):
-			flow_vector = np.array([features_flow[i][0][0]-features_prev[i][0][0],features_flow[i][0][1]-features_prev[i][0][1]])							  
-			conveyor_direction = np.array([-0.9578,0.2873])
-			if (np.linalg.norm(flow_vector)>1 and np.dot(flow_vector,conveyor_direction) > (0.99*np.linalg.norm(flow_vector))):
-				cv2.circle(frame_rgb_curr, (features_flow[i][0][0], features_flow[i][0][1]), 5, (0, 255, 0), -1)
-			else:
-				cv2.circle(frame_rgb_curr, (features_flow[i][0][0], features_flow[i][0][1]), 2, (0, 0, 255), -1)
 		
+		# first outlier removal: only keep points with positive status and small error
+		mask1 = np.logical_and(flow_status==1,flow_error<3).squeeze()
+		features_flow_good = features_flow[mask1]
+		features_prev_good = features_prev[mask1]
+		
+		# create vector containing each feature's motion vector
+		flow_vectors = features_flow_good-features_prev_good
+		
+		# second outlier removal: only keep points which moved and whose direction is aligned with the conveyor belt
+		flow_vectors_magnitude = np.apply_along_axis(np.linalg.norm, 1, flow_vectors.squeeze())
+		flow_vectors_projection = np.einsum("ij,ij->i", flow_vectors.squeeze(), np.repeat(conveyor_direction,flow_vectors.shape[0],axis=0))
+		mask2 = np.logical_and(flow_vectors_magnitude>1, flow_vectors_projection>0.95*flow_vectors_magnitude)
+		features_flow_good = features_flow_good[mask2]
+		features_prev_good = features_prev_good[mask2]
+		
+		# if at least 5 points passed the first 2 tests
+		if (features_flow_good.shape[0] > 4):			
+			# third outlier removal: remove points whose average distance to the closest neighbours is too big
+			nbrs = NearestNeighbors(n_neighbors=int(features_flow_good.shape[0]/2), algorithm='ball_tree').fit(features_flow_good.squeeze())
+			distances, _ = nbrs.kneighbors(features_flow_good.squeeze())
+			distances_avg = distances[:,1:].mean(axis=1)
+			mask3 = distances_avg < 100
+			features_flow_good = features_flow_good[mask3]
+			features_prev_good = features_prev_good[mask3]
+			
+			# display points that passed all the tests
+			for i in range(features_flow_good.shape[0]):			
+				cv2.circle(frame_rgb_curr, (features_flow_good[i][0][0], features_flow_good[i][0][1]), 5, (0, 255, 0), -1)
+				
+			
 		cv2.imshow("Tracking", frame_rgb_curr)
 	
-	# save previous image and features
+	# save current image and features
 	frame_gray_prev = frame_gray_curr
 	features_prev = features_curr
 
