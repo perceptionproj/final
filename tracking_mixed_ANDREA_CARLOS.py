@@ -57,6 +57,18 @@ of_samples_mean = 10 # number of consecutive frames to consider for the mean of 
 
 min_N = 5 # minumin number of points that have to pass all the outlier tests in order for the measurement to be considered
 
+# %% FUNCTIONS
+
+def getBlueMask(img):
+	hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+	low_blue = np.array([105,40,95])
+	up_blue = np.array([120,255,255])
+	mask = cv2.inRange(hsv, low_blue, up_blue)
+	kernel = np.ones((5,5),np.uint8)
+	mask_morph = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+	mask_morph = cv2.bitwise_not(mask_morph)	
+	return mask_morph
+
 # %% TRACKING
 
 # initialize frame_prev and features_prev
@@ -92,12 +104,16 @@ for i in range(n_images):
 	# create mask for goodFeaturesToTrack (only look for features that are inside the region of interest)
 	mask_roi = np.zeros((h,w),dtype='uint8')
 	mask_roi[int(roi_hist.mean(axis=0)[1]):int(roi_hist.mean(axis=0)[3]),int(roi_hist.mean(axis=0)[0]):int(roi_hist.mean(axis=0)[2])] = 255
-	
-	# Combine region of interest and blackground subtractor
+
+	# Get blue mask that characterizes the conveyor belt
+	blue_mask = getBlueMask(frame_rgb_curr)
+
+	# Combine blue mask, region of interest and blackground subtractor
 	mask_object = cv2.bitwise_and(mask_roi, fgmask)
+	final_mask = cv2.bitwise_and(mask_object, blue_mask)
 
 	# find good features to track
-	features_curr = cv2.goodFeaturesToTrack(frame_gray_curr, maxCorners=of_max_objs, qualityLevel=of_quality, minDistance=of_min_dist, mask=mask_object)
+	features_curr = cv2.goodFeaturesToTrack(frame_gray_curr, maxCorners=of_max_objs, qualityLevel=of_quality, minDistance=of_min_dist, mask=final_mask)
 
 	# if it's not the first frame:
 	if (i>0):
