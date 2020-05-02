@@ -54,7 +54,7 @@ for i in range(n_images):
         cv2.waitKey(5)
 cv2.destroyAllWindows()
 
-# %% STEREOCALIBRATE - COMPUTE AND SAVE (INTRINSIC) CAMERA MATRICES, DISTORTION COEFFICIENTS, ROTATION AND TRANSLATION BETWEEN THE TWO CAMERAS AND REPROJECTION ERROR
+# %% STEREOCALIBRATE - COMPUTE (INTRINSIC) CAMERA MATRICES, DISTORTION COEFFICIENTS, ROTATION AND TRANSLATION BETWEEN THE TWO CAMERAS AND REPROJECTION ERROR
 assert (img_l.shape[:2] == img_r.shape[:2])
 h, w = img_l.shape[:2]
 
@@ -62,43 +62,34 @@ term_crit_sc = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 100, 1e-5)
 flags_sc = cv2.CALIB_RATIONAL_MODEL
 ret_stereo,  mtx_l, dist_l, mtx_r, dist_r, mtx_R, mtx_T, mtx_E, mtx_F = cv2.stereoCalibrate(objpoints, imgpoints_l, imgpoints_r, None, None, None, None, (w,h), flags=flags_sc, criteria=term_crit_sc)
 
-mtx_l_new, roi_cal_l = cv2.getOptimalNewCameraMatrix(mtx_l,dist_l,(w,h),1,(w,h))
-mtx_r_new, roi_cal_r = cv2.getOptimalNewCameraMatrix(mtx_r,dist_r,(w,h),1,(w,h))
-
-# save calibration matrices for future use
-dir = "../calibration/calibration_matrix/"
-np.save(dir + "camera_matrix_l", mtx_l)
-np.save(dir + "distortion_coeff_l", dist_l)
-np.save(dir + "camera_matrix_l_new", mtx_l_new)
-np.save(dir + "camera_matrix_r", mtx_r)
-np.save(dir + "distortion_coeff_r", dist_r)
-np.save(dir + "camera_matrix_r_new", mtx_r_new)
-np.save(dir + "rotation_l_r", mtx_R)
-np.save(dir + "translation_l_r", mtx_T)
-np.save(dir + "essential_matrix", mtx_E)
-np.save(dir + "fundamental_matrix", mtx_F)
 
 # %% STEREORECTIFY - COMPUTE AND SAVE THE RECTIFICATION TRANSFORM AND PROJECTION MATRIX OF THE 2 CAMERAS, USING THE MATRICES COMPUTED BY STEREOCALIBRATE
-mtx_R_l, mtx_R_r, mtx_P_l, mtx_P_r, mtx_Q, roi_rec_l, roi_rec_r = cv2.stereoRectify(mtx_l, dist_l, mtx_r, dist_r, (w,h), mtx_R, mtx_T) 
 
-np.save(dir + "projection_matrix_l", mtx_P_l)
-np.save(dir + "projection_matrix_r", mtx_P_r)
+mtx_R_l, mtx_R_r, mtx_P_l, mtx_P_r, mtx_Q, roi_rec_l, roi_rec_r = cv2.stereoRectify(mtx_l, dist_l, mtx_r, dist_r, (w,h), mtx_R, mtx_T, alpha=0)
 
-# %% UNDISTORT, CROP AND SHOW IMAGE
-# undistort
+# %% COMPUTE UNDISTORTION AND RECTIFICATION TRANSFORMATION MAP
+map1x, map1y = cv2.initUndistortRectifyMap(mtx_l,dist_l,mtx_R_l,mtx_P_l,(w,h),cv2.CV_32FC1)
+map2x, map2y = cv2.initUndistortRectifyMap(mtx_r,dist_r,mtx_R_r,mtx_P_r,(w,h),cv2.CV_32FC1)
+
+
+# %% SAVE RECTIFIED CAMERA MATRICES AND UNDISTORTION/RECTIFICATION MAPS FOR FUTURE USE
+dir_calib = "../calibration/calibration_matrix/"
+np.save(dir_calib + "projection_matrix_l", mtx_P_l)
+np.save(dir_calib + "projection_matrix_r", mtx_P_r)
+np.save(dir_calib + "map_l_x", map1x)
+np.save(dir_calib + "map_l_y", map1y)
+np.save(dir_calib + "map_r_x", map2x)
+np.save(dir_calib + "map_r_y", map2y)
+
+
+# %% CHECK RESULT CORRECTNESS
+
 img_l = cv2.imread(images_left[0])
-img_l_undist = cv2.undistort(img_l, mtx_l, dist_l, None, mtx_l_new)
-
 cv2.imshow('Distorted Image', img_l)
 cv2.waitKey()
-cv2.imshow('Undistorted Image', img_l_undist)
-cv2.waitKey()
 
-# crop the image
-x,y,w,h = roi_cal_l
-img_l_undist_crop = img_l_undist[y:y+h, x:x+w]
-
-cv2.imshow('Undistorted and Cropped Image', img_l_undist_crop)
+img_l_undist_rect = cv2.remap(img_l, map1x, map1y, cv2.INTER_LINEAR)
+cv2.imshow('Undistorted and Rectified Image', img_l_undist_rect)
 cv2.waitKey()
 
 cv2.destroyAllWindows()

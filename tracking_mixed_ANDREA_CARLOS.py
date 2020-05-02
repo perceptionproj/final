@@ -3,7 +3,6 @@ import numpy as np
 import cv2
 import glob
 from sklearn.neighbors import NearestNeighbors
-import imutils
 
 # %% LOAD IMAGES
 dir_dataset = '../datasets/conveyor_without_occlusions'
@@ -17,43 +16,37 @@ images_right.sort()
 images_left.sort()
 
 # %% LOAD CALIBRATION MATRICES AND CAMERA PARAMETERS
-dir_params = "../calibration/calibration_matrix/"
-mtx_l = np.load(dir_params + "camera_matrix_l.npy")
-dist_l = np.load(dir_params + "distortion_coeff_l.npy")
-mtx_l_new = np.load(dir_params + "camera_matrix_l_new.npy")
-mtx_r = np.load(dir_params + "camera_matrix_r.npy")
-dist_r = np.load(dir_params + "distortion_coeff_r.npy")
-mtx_r_new = np.load(dir_params + "camera_matrix_r_new.npy")
-mtx_R = np.load(dir_params + "rotation_l_r.npy")
-mtx_T = np.load(dir_params + "translation_l_r.npy")
-mtx_E = np.load(dir_params + "essential_matrix.npy")
-mtx_F = np.load(dir_params + "fundamental_matrix.npy")
-mtx_P_l = np.load(dir_params + "projection_matrix_l.npy")
-mtx_P_r = np.load(dir_params + "projection_matrix_r.npy")
+dir_calib = "../calibration/calibration_matrix/"
+mtx_P_l = np.load(dir_calib + "projection_matrix_l.npy")
+mtx_P_r = np.load(dir_calib + "projection_matrix_r.npy")
+rect_map_l_x = np.load(dir_calib + "map_l_x.npy")
+rect_map_l_y = np.load(dir_calib + "map_l_y.npy")
+rect_map_r_x = np.load(dir_calib + "map_r_x.npy")
+rect_map_r_y = np.load(dir_calib + "map_r_y.npy")
 
 # %% SETTINGS
 h, w = cv2.imread(images_left[0]).shape[:2] # size of the images (pixels)
 
-roi_start = np.array([1000,250,1150,400]) # initialized region of interest where the object is expected to appear (pixels)
+roi_start = np.array([1030,240,1270,440]) # initialized region of interest where the object is expected to appear (pixels)
 roi_padding = 40 # expansion of the region of interest to allow for a dynamical region of interest (pixels)
 
-conveyor_x0 = 450 # x beginning of the conveyor (pixels)
-conveyor_x1 = 1100 # x end of the ocnveyor (pixels)
+conveyor_x0 = 470 # x beginning of the conveyor (pixels)
+conveyor_x1 = 1170 # x end of the conveyor (pixels)
 
-conveyor_direction = np.array([[-667,225]]) # vector representing the direction of the conveyor belt
+conveyor_direction = np.array([[-725,236]]) # vector representing the direction of the conveyor belt
 conveyor_direction = conveyor_direction / np.linalg.norm(conveyor_direction) # normalized vector
 
-of_max_objs = 3000 # maximun number of features to find
-of_quality = 0.01 # quality of the features (lower -> more features)
+of_max_objs = 1000 # maximun number of features to find
+of_quality = 0.03 # quality of the features (lower -> more features)
 of_min_dist = 3 # minumum distance between the features (pixels)
 of_err_threshold = 3 # error threshold of the features (discard features with higher value)
 
 of_magnitude = 1 # minimun speed for a feature point to be considered (pixels/frame)
-of_projection = 0.95 # discard features whose velocity vector, projected on the direction of the conveyor, retains less than 0.95 of their magnitude (they are not moving on the conveyor)
+of_projection = 0.99 # discard features whose velocity vector, projected on the direction of the conveyor, retains less than 0.95 of their magnitude (they are not moving on the conveyor)
 
 of_ngb_dist_max = 300 # maximun medium distance to the feature's nearest neighbours (pixels)
 
-of_samples_mean = 10 # number of consecutive frames to consider for the mean of the roi position (higher = smoother)
+of_samples_mean = 5 # number of consecutive frames to consider for the mean of the roi position (higher = smoother)
 
 min_N = 5 # minumin number of points that have to pass all the outlier tests in order for the measurement to be considered
 
@@ -67,12 +60,11 @@ frame_gray_prev = np.zeros((h,w),dtype='uint8')
 roi = roi_start
 roi_hist = np.asarray(roi_start).reshape(1,4)
 
-#Initialize Blackground Subtractor
+# initialize blackground subtractor
 fgbg = cv2.createBackgroundSubtractorKNN(history=600,dist2Threshold=800, detectShadows=False)
-#Define kernels
+# define kernels
 kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
 
-#%%
 # initialize object count and status
 obj_count = 0
 obj_present = False # (is there an object on the scene?)
@@ -83,17 +75,25 @@ obj_found = False # (was it possible to localize the object on the scene?)
 for i in range(n_images):
 	# grab current frame and extract features
 	frame_rgb_curr = cv2.imread(images_left[i])
+	frame_rgb_curr_right = cv2.imread(images_right[i])
 	frame_gray_curr = cv2.cvtColor(frame_rgb_curr, cv2.COLOR_RGB2GRAY)
+	frame_gray_curr_right = cv2.cvtColor(frame_rgb_curr_right, cv2.COLOR_RGB2GRAY)
 	
-	# Apply the blackground subtration with the current frame
+	# undistort and rectify left and right image
+	frame_rgb_curr = cv2.remap(frame_rgb_curr, rect_map_l_x, rect_map_l_y, cv2.INTER_LINEAR)
+	frame_rgb_curr_right = cv2.remap(frame_rgb_curr_right, rect_map_r_x, rect_map_r_y, cv2.INTER_LINEAR)
+	frame_gray_curr = cv2.remap(frame_gray_curr, rect_map_l_x, rect_map_l_y, cv2.INTER_LINEAR)
+	frame_gray_curr_right = cv2.remap(frame_gray_curr_right, rect_map_r_x, rect_map_r_y, cv2.INTER_LINEAR)
+	
+	# apply the blackground subtration with the current frame
 	fgmask = fgbg.apply(frame_rgb_curr)
 	fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, kernel, iterations=2)
 
 	# create mask for goodFeaturesToTrack (only look for features that are inside the region of interest)
 	mask_roi = np.zeros((h,w),dtype='uint8')
-	mask_roi[int(roi_hist.mean(axis=0)[1]):int(roi_hist.mean(axis=0)[3]),int(roi_hist.mean(axis=0)[0]):int(roi_hist.mean(axis=0)[2])] = 255
+	mask_roi[roi[1]:roi[3],roi[0]:roi[2]] = 255
 	
-	# Combine region of interest and blackground subtractor
+	# combine region of interest and blackground subtractor
 	mask_object = cv2.bitwise_and(mask_roi, fgmask)
 
 	# find good features to track
@@ -204,14 +204,13 @@ for i in range(n_images):
 			vis_text = "Waiting for object " + str(obj_count+1)
 			vis_box_color = (0,0,255)
 
-		# Blue Point = center of the features
-		cv2.putText(frame_rgb_curr, "Blue Point = features center", (roi_hist.mean(axis=0)[0].astype(int),roi_hist.mean(axis=0)[1].astype(int)-45), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0), 1, cv2.LINE_AA )
-		# Green Point = center of the region of interest
-		cv2.putText(frame_rgb_curr, "Green Point = roi center", (roi_hist.mean(axis=0)[0].astype(int),roi_hist.mean(axis=0)[1].astype(int)-30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1, cv2.LINE_AA )
-		# write info above object
+		# write legend below roi
+		cv2.putText(frame_rgb_curr, "Blue Point = features center", (roi_hist.mean(axis=0)[0].astype(int),roi_hist.mean(axis=0)[3].astype(int)+15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,0,0), 1, cv2.LINE_AA )
+		cv2.putText(frame_rgb_curr, "Green Point = roi center", (roi_hist.mean(axis=0)[0].astype(int),roi_hist.mean(axis=0)[3].astype(int)+30), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,255,0), 1, cv2.LINE_AA )
+		# write object status above roi
 		cv2.putText(frame_rgb_curr, vis_text, (roi_hist.mean(axis=0)[0].astype(int),roi_hist.mean(axis=0)[1].astype(int)-10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, vis_box_color, 1, cv2.LINE_AA)
 		# draw rectangle of region of interest
-		cv2.rectangle(frame_rgb_curr, tuple(roi_hist.mean(axis=0)[:2].astype(int)), tuple(roi_hist.mean(axis=0)[-2:].astype(int)), vis_box_color, 3)
+		cv2.rectangle(frame_rgb_curr, tuple(roi_hist.mean(axis=0)[:2].astype(int)), tuple(roi_hist.mean(axis=0)[-2:].astype(int)), vis_box_color, 2)
 		# display final result
 		cv2.imshow("Tracking", frame_rgb_curr)
 	

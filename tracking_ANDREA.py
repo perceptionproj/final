@@ -5,7 +5,7 @@ import glob
 from sklearn.neighbors import NearestNeighbors
 
 # %% LOAD IMAGES
-dir_dataset = '../datasets/conveyor_without_occlusions'
+dir_dataset = '../datasets/conveyor_with_occlusions'
 images_left = glob.glob(dir_dataset + '/left/*.png')
 images_right = glob.glob(dir_dataset + '/right/*.png')
 
