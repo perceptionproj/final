@@ -1,10 +1,21 @@
+#%% IMPORT
 import numpy as np
 import cv2
 import glob
 import imutils
 import os
+from sklearn.neighbors import NearestNeighbors
 
-#%% FUNCTIONS USED
+# %% FUNCTIONS
+def getBlueMask(img):
+	hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+	low_blue = np.array([105,40,95])
+	up_blue = np.array([120,255,255])
+	mask = cv2.inRange(hsv, low_blue, up_blue)
+	kernel = np.ones((5,5),np.uint8)
+	mask_morph = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+	mask_morph = cv2.bitwise_not(mask_morph)	
+	return mask_morph
 
 def centerRectangle_find(p1, p2):
     x = int(p1[0] + (p2[0] - p1[0])/2)
@@ -12,7 +23,7 @@ def centerRectangle_find(p1, p2):
     return (x,y)
 
 #%% LOAD IMAGES
-dataset = '../datasets/conveyor_without_occlusions'
+dataset = '../Final_Project_GitHub/datasets/conveyor_without_occlusions'
 images_left = glob.glob(dataset + '/left/*.png')
 images_right = glob.glob(dataset + '/right/*.png')
 
@@ -22,30 +33,25 @@ n_images = len(images_right)
 images_right.sort()
 images_left.sort()
 
-#%% LOAD MATRICES AND PARAMETERS
+# %% LOAD CALIBRATION MATRICES AND CAMERA PARAMETERS
+dir_calib = "../Final_Project_GitHub/calibration/calibration_matrix/"
+mtx_P_l = np.load(dir_calib + "projection_matrix_l.npy")
+mtx_P_r = np.load(dir_calib + "projection_matrix_r.npy")
+rect_map_l_x = np.load(dir_calib + "map_l_x.npy")
+rect_map_l_y = np.load(dir_calib + "map_l_y.npy")
+rect_map_r_x = np.load(dir_calib + "map_r_x.npy")
+rect_map_r_y = np.load(dir_calib + "map_r_y.npy")
 
-dir = "../calibration/calibration_matrix/"
-mtx_l = np.load(dir + "camera_matrix_l.npy")
-dist_l = np.load(dir + "distortion_coeff_l.npy")
-mtx_l_new = np.load(dir + "camera_matrix_l_new.npy")
-mtx_r = np.load(dir + "camera_matrix_r.npy")
-dist_r = np.load(dir + "distortion_coeff_r.npy")
-mtx_r_new = np.load(dir + "camera_matrix_r_new.npy")
-mtx_R = np.load(dir + "rotation_l_r.npy")
-mtx_T = np.load(dir + "translation_l_r.npy")
-mtx_E = np.load(dir + "essential_matrix.npy")
-mtx_F = np.load(dir + "fundamental_matrix.npy")
-mtx_P_l = np.load(dir + "projection_matrix_l.npy")
-mtx_P_r = np.load(dir + "projection_matrix_r.npy")
+#%% SETTINGS and VARIABLES DEFINITION
+h, w = cv2.imread(images_left[0]).shape[:2] # size of the images (pixels)
+min_area = 3000 # define minimum area to avoid small outliers regions
 
-#%% MOTION DETECTION AND BACKGROUND MASK
+# initialize frame_prev and features_prev
+feat_prev = np.empty((0,1,2),dtype='float32')
+gray_prev = np.zeros((h,w),dtype='uint8')
 
-# Create VideoWriter object in oder to record the result
-#img_sample = cv2.imread(images_left[0])
-#frame_height,  frame_width = img_sample.shape[:2]
-#object_detection = cv2.VideoWriter('Object_Detection.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 40, (frame_width,frame_height))
-
-min_area = 3500
+# Define region of the belt
+contour_belt = np.array([[[387,476]],[[464,696]],[[1217,359]],[[1071,280]]])
 
 #Define kernels
 kernel_ero = np.ones((5,5), np.uint8)
@@ -58,35 +64,49 @@ fgbg = cv2.createBackgroundSubtractorKNN(history=600,dist2Threshold=800, detectS
 #Define previous image
 prev_img = cv2.imread(images_left[0])
 prev_gray = cv2.cvtColor(prev_img, cv2.COLOR_BGR2GRAY)
-mask = np.zeros_like(prev_img)
 
 # Parameters for Shi-Tomasi corner detection
 feature_params = dict(maxCorners = 3000, qualityLevel = 0.01, minDistance = 1, blockSize = 2)
 # Parameters for Lucas-Kanade optical flow
 lk_params = dict(winSize = (7,7), maxLevel = 1, criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))  
 
-# Define region of the belt
-contour_belt = np.array([[[387,476]],[[464,696]],[[1217,359]],[[1071,280]]])
-# vector representing the direction of the conveyor belt
-conveyor_direction = np.array([[-667,225]])
-conveyor_direction = conveyor_direction / np.linalg.norm(conveyor_direction)
+of_ngb_dist_max = 300 # maximun medium distance to the feature's nearest neighbours (pixels)
+min_N = 5 # minumin number of points that have to pass all the outlier tests in order for the measurement to be considered
 
 object_on_conveyor = None
-center_rectangle = (0,0)
 new_object = False
 object_number = 0
-color = [(255,0,0),(0,255,0),(0,0,255),(100,100,100),(0,255,255),(255,0,255),(255,255,0), (200,50,180)]
+center_rectangle = (0,0)
+color = (0,255,0)
+
+#%% TRACKING 2D
 
 for i in range(n_images):
-    # grab the current frame 
+    # grab current frame 
     frame = cv2.imread(images_left[i])
-    img = frame.copy()
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    frame_right = cv2.imread(images_right[i])
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    gray_right = cv2.cvtColor(frame_right, cv2.COLOR_BGR2GRAY)
+
+    # undistort and rectify left and right image
+    frame = cv2.remap(frame, rect_map_l_x, rect_map_l_y, cv2.INTER_LINEAR)
+    frame_right = cv2.remap(frame_right, rect_map_r_x, rect_map_r_y, cv2.INTER_LINEAR)
+    gray = cv2.remap(gray, rect_map_l_x, rect_map_l_y, cv2.INTER_LINEAR)
+    gray_right = cv2.remap(gray_right, rect_map_r_x, rect_map_r_y, cv2.INTER_LINEAR)
 
     # Apply the blackground subtration with the current frame
     fgmask = fgbg.apply(frame)
-    fgmask = cv2.morphologyEx(fgmask, cv2.MORPH_OPEN, kernel, iterations=2)
+
+    # Get blue mask that characterizes the conveyor belt
+    blue_mask = getBlueMask(frame)
     
+	# Combine blue mask and blackground subtractor
+    mask_object = cv2.bitwise_or(gray, gray, mask = fgmask)
+    mask_object = cv2.erode(mask_object, kernel, iterations=1)
+    mask_object = cv2.dilate(mask_object, kernel, iterations=1)
+    mask_object = cv2.bitwise_and(mask_object, blue_mask)
+    fgmask = cv2.morphologyEx(mask_object, cv2.MORPH_OPEN, kernel, iterations=2)
+
     # Find the contours
     cnts = cv2.findContours(fgmask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cnts = imutils.grab_contours(cnts)
@@ -97,9 +117,9 @@ for i in range(n_images):
                 
         if area > min_area:           
             # compute the bounding box for the contour, draw it on the frame
-            (x,y,w,h) = cv2.boundingRect(c)
+            (x,y,width,height) = cv2.boundingRect(c)
             point1 = (int(x),int(y))
-            point2 = (int(x+w), int(y+h))
+            point2 = (int(x+width), int(y+height))
             center_rectangle = centerRectangle_find(point1, point2)
             object_on_conveyor = cv2.pointPolygonTest(contour_belt, center_rectangle, measureDist = False)
             
@@ -109,77 +129,46 @@ for i in range(n_images):
             if object_on_conveyor==-1.0 and new_object==True:
                 new_object = False
                 object_number+=1
-                mask = np.zeros_like(prev_img)
                                             
             if object_on_conveyor==1.0:
                 cv2.rectangle(frame, point1, point2, (0,0,255),2)
                 cv2.circle(frame, center_rectangle, 1, (0,0,255), 2)
 
-    output = cv2.bitwise_or(gray, gray, mask = fgmask)
-    output = cv2.erode(output, kernel, iterations=1)
-    output = cv2.dilate(output, kernel, iterations=1)
-
-
     if object_on_conveyor==1.0 and new_object==True:
-        #GoodefeaturesToTrack()
-        prev_feat = cv2.goodFeaturesToTrack(prev_gray, mask = output, **feature_params)
+ 
+        prev_feat = cv2.goodFeaturesToTrack(prev_gray, mask = mask_object, **feature_params)
         prev_feat = np.float32(prev_feat)
 
-        for item in prev_feat:
-            x, y = item[0]
-            cv2.circle(img, (x, y), 3, (0, 255, 0), -1)
-
-        next_feat, status, error = cv2.calcOpticalFlowPyrLK(prev_gray, gray, prev_feat, None, **lk_params)
+        curr_feat, status, error = cv2.calcOpticalFlowPyrLK(prev_gray, gray, prev_feat, None, **lk_params)
         
-        # first outlier removal: only keep points with positive status and small error
+        # FIRST OUTLIER REMOVAL: only keep points with positive status and small error
         mask1 = np.logical_and(status==1,error<3).squeeze()
-        # Selects good feature points for previous position
-        good_old = prev_feat[mask1]
-        # Selects good feature points for next position
-        good_new = next_feat[mask1]
 
-        # create vector containing each feature's motion vector
-        flow_vectors = good_new- good_old
+        prev_feat = prev_feat[mask1]
+        curr_feat = curr_feat[mask1]
 
-        # second outlier removal: only keep points which moved, and whose direction is aligned with the conveyor belt's direction
-        flow_vectors_magnitude = np.apply_along_axis(np.linalg.norm, 1, flow_vectors.squeeze())
-        flow_vectors_projection = np.einsum("ij,ij->i", flow_vectors.squeeze(), np.repeat(conveyor_direction,flow_vectors.shape[0],axis=0))
-        mask2 = np.logical_and(flow_vectors_magnitude>1, flow_vectors_projection>0.95*flow_vectors_magnitude)
+        # THIRD OUTLIER REMOVAL: remove points whose average distance to the closest neighbours is too big
+        if (curr_feat.shape[0] >= min_N):
+            nbrs = NearestNeighbors(n_neighbors=int(curr_feat.shape[0]/2), algorithm='ball_tree').fit(curr_feat[:,0,:])
+            distances, _ = nbrs.kneighbors(curr_feat[:,0,:])
+            distances_avg = distances[:,1:].mean(axis=1)
+            mask3 = distances_avg < of_ngb_dist_max
+            curr_feat = curr_feat[mask3]
 
-        # Selects good feature points for previous position
-        good_old = good_old[mask2]
-        # Selects good feature points for next position
-        good_new = good_new[mask2]
+        for i in range(curr_feat.shape[0]):			
+            cv2.circle(frame, (curr_feat[i][0][0], curr_feat[i][0][1]), 2, color, -1)	
 
-        for i, (new, old) in enumerate(zip(good_new, good_old)):
-            # Returns a contiguous flattened array as (x, y) coordinates for new point
-            a, b = new.ravel()
-            # Returns a contiguous flattened array as (x, y) coordinates for old point
-            c, d = old.ravel()
-            # Draws line between new and old position with green color and 2 thickness
-            mask = cv2.line(mask, (a, b), (c, d), color[object_number], 1)
-            # Draws filled circle (thickness of -1) at new position with green color and radius of 3
-            cv2.circle(frame, (a, b), 2, color[object_number], -1)
+        prev_feat = curr_feat.reshape(-1,1,2)
 
-        # Overlays the optical flow tracks on the original frame
-        frame = cv2.add(frame, mask)
-        prev_feat = good_new.reshape(-1,1,2)
-        #cv2.imshow("Features tracked",result_opticalFlow)
+    prev_gray = gray
 
-    os.system('clear')
-    print("Object number: " + str(object_number))
-    object_on_conveyor==None
-    prev_gray = gray.copy()
+    os.system("clear")
+    print("Object Number: " + str(object_number))
 
-    #object_detection.write(frame)
-    cv2.namedWindow("Object tracked", cv2.WINDOW_FULLSCREEN)
     cv2.imshow("Object tracked", frame)
-    cv2.imshow("Blackground Subtration", fgmask)
-    cv2.imshow("OUTPUT", output)
-    
+    #cv2.imshow("Blackground Subtration", mask_object)
     
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-#object_detection.release()
 cv2.destroyAllWindows()
