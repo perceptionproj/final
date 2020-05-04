@@ -5,7 +5,7 @@ import glob
 from sklearn.neighbors import NearestNeighbors
 
 # %% LOAD IMAGES
-dir_dataset = '../datasets/conveyor_with_occlusions'
+dir_dataset = '../datasets/conveyor_without_occlusions'
 images_left = glob.glob(dir_dataset + '/left/*.png')
 images_right = glob.glob(dir_dataset + '/right/*.png')
 
@@ -16,33 +16,27 @@ images_right.sort()
 images_left.sort()
 
 # %% LOAD CALIBRATION MATRICES AND CAMERA PARAMETERS
-dir_params = "../calibration/calibration_matrix/"
-mtx_l = np.load(dir_params + "camera_matrix_l.npy")
-dist_l = np.load(dir_params + "distortion_coeff_l.npy")
-mtx_l_new = np.load(dir_params + "camera_matrix_l_new.npy")
-mtx_r = np.load(dir_params + "camera_matrix_r.npy")
-dist_r = np.load(dir_params + "distortion_coeff_r.npy")
-mtx_r_new = np.load(dir_params + "camera_matrix_r_new.npy")
-mtx_R = np.load(dir_params + "rotation_l_r.npy")
-mtx_T = np.load(dir_params + "translation_l_r.npy")
-mtx_E = np.load(dir_params + "essential_matrix.npy")
-mtx_F = np.load(dir_params + "fundamental_matrix.npy")
-mtx_P_l = np.load(dir_params + "projection_matrix_l.npy")
-mtx_P_r = np.load(dir_params + "projection_matrix_r.npy")
+dir_calib = "../calibration/calibration_matrix/"
+mtx_P_l = np.load(dir_calib + "projection_matrix_l.npy")
+mtx_P_r = np.load(dir_calib + "projection_matrix_r.npy")
+rect_map_l_x = np.load(dir_calib + "map_l_x.npy")
+rect_map_l_y = np.load(dir_calib + "map_l_y.npy")
+rect_map_r_x = np.load(dir_calib + "map_r_x.npy")
+rect_map_r_y = np.load(dir_calib + "map_r_y.npy")
 
 # %% SETTINGS
 h, w = cv2.imread(images_left[0]).shape[:2] # size of the images (pixels)
 
-roi_start = np.array([1000,250,1150,400]) # initialized region of interest where the object is expected to appear (pixels)
+roi_start = np.array([1030,240,1270,440]) # initialized region of interest where the object is expected to appear (pixels)
 roi_padding = 40 # expansion of the region of interest to allow for a dynamical region of interest (pixels)
 
 conveyor_x0 = 450 # x beginning of the conveyor (pixels)
 conveyor_x1 = 1100 # x end of the ocnveyor (pixels)
 
-conveyor_direction = np.array([[-667,225]]) # vector representing the direction of the conveyor belt
+conveyor_direction = np.array([[-725,236]]) # vector representing the direction of the conveyor belt
 conveyor_direction = conveyor_direction / np.linalg.norm(conveyor_direction) # normalized vector
 
-of_max_objs = 100 # maximun number of features to find
+of_max_objs = 1000 # maximun number of features to find
 of_quality = 0.01 # quality of the features (lower -> more features)
 of_min_dist = 5 # minumum distance between the features (pixels)
 of_err_threshold = 3 # error threshold of the features (discard features with higher value)
@@ -74,9 +68,16 @@ obj_found = False # (was it possible to localize the object on the scene?)
 
 # for each frame of the video:
 for i in range(n_images):
-	# grab current frame and extract features
+	# grab current frame
 	frame_rgb_curr = cv2.imread(images_left[i])
+	frame_rgb_curr_right = cv2.imread(images_right[i])
 	frame_gray_curr = cv2.cvtColor(frame_rgb_curr, cv2.COLOR_RGB2GRAY)
+	frame_gray_curr_right = cv2.cvtColor(frame_rgb_curr_right, cv2.COLOR_RGB2GRAY)
+	# undistort and rectify left and right image
+	frame_rgb_curr = cv2.remap(frame_rgb_curr, rect_map_l_x, rect_map_l_y, cv2.INTER_LINEAR)
+	frame_rgb_curr_right = cv2.remap(frame_rgb_curr_right, rect_map_r_x, rect_map_r_y, cv2.INTER_LINEAR)
+	frame_gray_curr = cv2.remap(frame_gray_curr, rect_map_l_x, rect_map_l_y, cv2.INTER_LINEAR)
+	frame_gray_curr_right = cv2.remap(frame_gray_curr_right, rect_map_r_x, rect_map_r_y, cv2.INTER_LINEAR)
 	# create mask for goodFeaturesToTrack (only look for features that are inside the region of interest)
 	mask_roi = np.zeros((h,w),dtype='uint8')
 	mask_roi[int(roi_hist.mean(axis=0)[1]):int(roi_hist.mean(axis=0)[3]),int(roi_hist.mean(axis=0)[0]):int(roi_hist.mean(axis=0)[2])] = 255
