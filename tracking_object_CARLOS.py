@@ -23,7 +23,7 @@ def centerRectangle_find(p1, p2):
     return (x,y)
 
 #%% LOAD IMAGES
-dataset = '../Final_Project_GitHub/datasets/conveyor_without_occlusions'
+dataset = '../datasets/conveyor_without_occlusions'
 images_left = glob.glob(dataset + '/left/*.png')
 images_right = glob.glob(dataset + '/right/*.png')
 
@@ -34,7 +34,7 @@ images_right.sort()
 images_left.sort()
 
 # %% LOAD CALIBRATION MATRICES AND CAMERA PARAMETERS
-dir_calib = "../Final_Project_GitHub/calibration/calibration_matrix/"
+dir_calib = "../calibration/calibration_matrix/"
 mtx_P_l = np.load(dir_calib + "projection_matrix_l.npy")
 mtx_P_r = np.load(dir_calib + "projection_matrix_r.npy")
 rect_map_l_x = np.load(dir_calib + "map_l_x.npy")
