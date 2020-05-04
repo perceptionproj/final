@@ -42,7 +42,7 @@ roi_start = np.array([1030,240,1270,440]) # initialized region of interest where
 roi_padding = 40 # expansion of the region of interest to allow for a dynamical region of interest (pixels)
 
 conveyor_x0 = 470 # x beginning of the conveyor (pixels)
-conveyor_x1 = 1170 # x end of the conveyor (pixels)
+conveyor_x1 = 1250 # x end of the conveyor (pixels)
 
 conveyor_direction = np.array([[-725,236]]) # vector representing the direction of the conveyor belt
 conveyor_direction = conveyor_direction / np.linalg.norm(conveyor_direction) # normalized vector
