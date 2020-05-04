@@ -15,6 +15,17 @@ n_images = len(images_right)
 images_right.sort()
 images_left.sort()
 
+# %% FUNCTIONS
+def getBlueMask(img):
+	hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+	low_blue = np.array([105,40,95])
+	up_blue = np.array([120,255,255])
+	mask = cv2.inRange(hsv, low_blue, up_blue)
+	kernel = np.ones((5,5),np.uint8)
+	mask_morph = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+	mask_morph = cv2.bitwise_not(mask_morph)	
+	return mask_morph
+
 # %% LOAD CALIBRATION MATRICES AND CAMERA PARAMETERS
 dir_calib = "../calibration/calibration_matrix/"
 mtx_P_l = np.load(dir_calib + "projection_matrix_l.npy")
@@ -92,9 +103,14 @@ for i in range(n_images):
 	# create mask for goodFeaturesToTrack (only look for features that are inside the region of interest)
 	mask_roi = np.zeros((h,w),dtype='uint8')
 	mask_roi[roi[1]:roi[3],roi[0]:roi[2]] = 255
-	
-	# combine region of interest and blackground subtractor
+
+	# Get blue mask that characterizes the conveyor belt
+	blue_mask = getBlueMask(frame_rgb_curr)
+
+	# Combine blue mask, region of interest and blackground subtractor
 	mask_object = cv2.bitwise_and(mask_roi, fgmask)
+	mask_object = cv2.bitwise_and(mask_object, blue_mask)
+	mask_object = cv2.morphologyEx(mask_object, cv2.MORPH_OPEN, np.ones((5,5), dtype = np.uint8), iterations=1)	
 
 	# find good features to track
 	features_curr = cv2.goodFeaturesToTrack(frame_gray_curr, maxCorners=of_max_objs, qualityLevel=of_quality, minDistance=of_min_dist, mask=mask_object)
@@ -213,6 +229,7 @@ for i in range(n_images):
 		cv2.rectangle(frame_rgb_curr, tuple(roi_hist.mean(axis=0)[:2].astype(int)), tuple(roi_hist.mean(axis=0)[-2:].astype(int)), vis_box_color, 2)
 		# display final result
 		cv2.imshow("Tracking", frame_rgb_curr)
+		cv2.imshow("mask", mask_object)
 	
 	if (cv2.waitKey(1) & 0xFF == 27): break  # ESC to quit
 	
