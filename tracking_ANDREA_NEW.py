@@ -16,7 +16,7 @@ rect_map_r_x = np.load(dir_calib + "map_r_x.npy")
 rect_map_r_y = np.load(dir_calib + "map_r_y.npy")
 
 # %% LOAD IMAGES
-dataset = '../datasets/conveyor_with_occlusions'
+dataset = '../datasets/conveyor_without_occlusions'
 images_left = glob.glob(dataset + '/left/*.png')
 images_right = glob.glob(dataset + '/right/*.png')
 
