@@ -65,11 +65,11 @@ def detectAndClassify(img):
     # Classisy descriptor
     A = int(clf.predict(histogram))
     if A == 0:
-        print("BOOK")
+        return "BOOK"
     elif A == 1:
-        print("BOX")
+        return "BOX"
     elif A == 2:
-        print("CUP")
+        return "CUP"
 
 
 
