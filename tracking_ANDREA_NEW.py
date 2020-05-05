@@ -40,6 +40,7 @@ def getRectangleCenter(p1,p2):
 	y = int(p1[1] + (p2[1] - p1[1])/2)
 	return (x,y)
 
+
 # %% SETTINGS and VARIABLES DEFINITION
 h, w = cv2.imread(images_left[0]).shape[:2] # size of the images (pixels)
 min_area = 3000 # define minimum object area to avoid small outliers regions (pixels^2)
@@ -67,6 +68,7 @@ kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
 # initialize background subtractor
 fgbg = cv2.createBackgroundSubtractorKNN(history=600,dist2Threshold=800, detectShadows=False)
 
+# initialize roi
 point1_start = (1030,240)
 point2_start = (1270,440)
 point1 = point1_start
@@ -79,6 +81,9 @@ obj_count = 0
 object_on_conveyor = None
 obj_present = False # (is there an object on the scene?)
 obj_found = False # (was it possible to localize the object on the scene?)
+
+# initialize object classification counter
+obj_class = {"cup":0,"book":0,"box":0}
 
 # %% MAIN
 
@@ -102,7 +107,7 @@ for i in range(n_images):
 	# get blue mask that characterizes the conveyor belt
 	mask_blue = getBlueMask(frame)
 	
-	# combine blue mask and background subtractor
+	# combine blue mask, background subtractor and hands mask
 	mask_fg = cv2.bitwise_and(mask_fg, mask_belt_x)
 	mask_fg = cv2.bitwise_and(mask_fg, mask_blue)
 	mask_fg = cv2.morphologyEx(mask_fg, cv2.MORPH_OPEN, kernel, iterations=2)
@@ -112,6 +117,7 @@ for i in range(n_images):
 	cnts = imutils.grab_contours(cnts)
 
 	obj_found = False
+	obj_picture = np.zeros((1,1,3),dtype="uint8")
 
 	if len(cnts)>0:
 		# get contour with the highest area
@@ -129,22 +135,38 @@ for i in range(n_images):
 			# compute movement vector of the center
 			center_movement = np.array(center_rectangle)-np.array(center_rectangle_prev)
 			
-			# if the center didn't move too much
+			# if the center didn't move too much (not a new object or noise)
 			if (np.linalg.norm(center_movement)<200):
 				# check that object is on the conveyor
 				object_on_conveyor = cv2.pointPolygonTest(belt_contour, center_rectangle, measureDist = False)
+				# if the object is on the conveyor:
 				if object_on_conveyor==1.0:
+					# if it's a new object:
 					if not obj_present:
+						# increase object count
 						obj_count += 1
+						# initialize classification counters
+						obj_class = {"cup":0,"book":0,"box":0}
+					# update object status
 					obj_present = True
 					obj_found = True
+					# classify the object:
+					# extract object from current frame
+					mask_roi = np.zeros((h,w),dtype='uint8')
+					mask_roi[point1[1]:point2[1],point1[0]:point2[0]] = 255
+					mask_obj = cv2.bitwise_and(mask_roi, mask_belt_x)
+					obj_picture = cv2.bitwise_and(frame, frame, mask = mask_obj)
+					obj_picture = obj_picture[point1[1]:point2[1],point1[0]:point2[0]]
+					
+			# if the center moved too much (new object or noise)
 			else:
+				# reset roi
 				point1 = point1_start
 				point2 = point2_start
 				center_rectangle = getRectangleCenter(point1, point2)
 
 	
-	# if the object is present on the conveyor, but it was not found in the current frame:
+	# if the object is present on the conveyor, but it was not found in the current frame (occlusion):
 	if obj_present and not obj_found:
 		# predict position with kalman filter
 		center_rectangle = (center_rectangle[0]-4,center_rectangle[1]+2)
@@ -153,7 +175,7 @@ for i in range(n_images):
 	
 	# if object reaches the end of the conveyor:
 	if obj_present and point1[0]<=belt_x0:
-		# prepare for next object
+		# prepare for next object (reset status and roi)
 		obj_present = False
 		point1 = point1_start
 		point2 = point2_start
@@ -163,10 +185,22 @@ for i in range(n_images):
 	
 	# %% VISUALIZATION
 	
-	cv2.rectangle(frame, point1, point2, (0,0,255),2)
-	cv2.circle(frame, center_rectangle, 1, (0,0,255), 2)
-	# write info above object
-	cv2.putText(frame, str(obj_count), (point1[0],point1[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,0,255), 1, cv2.LINE_AA)
+	# prepare text and color depending on object status
+	if obj_present and obj_found:
+		roi_color = (0,255,0)
+		roi_text = "Tracking object " + str(obj_count)
+	elif obj_present and not obj_found:
+		roi_color = (0,255,255)
+		roi_text = "Lost object " + str(obj_count) + ". Predicting"
+	elif not obj_present:
+		roi_color = (0,0,255)
+		roi_text = "Waiting object " + str(obj_count+1)
+	
+	# display bounding rectangle and center
+	cv2.rectangle(frame, point1, point2, roi_color,2)
+	cv2.circle(frame, center_rectangle, 1, roi_color, 2)
+	# write object status above object
+	cv2.putText(frame, roi_text, (point1[0],point1[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, roi_color, 1, cv2.LINE_AA)
 	cv2.imshow("Final Project", frame)
 	#cv2.imshow("Blackground Subtration", mask_fg)
 	
