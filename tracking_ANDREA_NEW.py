@@ -4,6 +4,8 @@ import cv2
 import glob
 import imutils
 
+import SIFT1_Classify as myClassifier
+
 # %% LOAD CALIBRATION MATRICES AND CAMERA PARAMETERS
 dir_calib = "../calibration/calibration_matrix/"
 mtx_P_l = np.load(dir_calib + "projection_matrix_l.npy")
@@ -83,7 +85,7 @@ obj_present = False # (is there an object on the scene?)
 obj_found = False # (was it possible to localize the object on the scene?)
 
 # initialize object classification counter
-obj_class = {"cup":0,"book":0,"box":0}
+obj_type_hist = {"cup":0,"book":0,"box":0}
 
 # %% MAIN
 
@@ -118,6 +120,7 @@ for i in range(n_images):
 
 	obj_found = False
 	obj_picture = np.zeros((1,1,3),dtype="uint8")
+	obj_type = "N/A - Out of range"
 
 	if len(cnts)>0:
 		# get contour with the highest area
@@ -146,17 +149,20 @@ for i in range(n_images):
 						# increase object count
 						obj_count += 1
 						# initialize classification counters
-						obj_class = {"cup":0,"book":0,"box":0}
+						obj_type_hist = {"cup":0,"book":0,"box":0}
 					# update object status
 					obj_present = True
 					obj_found = True
-					# classify the object:
+					# CLASSIFICATION
 					# extract object from current frame
 					mask_roi = np.zeros((h,w),dtype='uint8')
 					mask_roi[point1[1]:point2[1],point1[0]:point2[0]] = 255
-					mask_obj = cv2.bitwise_and(mask_roi, mask_belt_x)
-					obj_picture = cv2.bitwise_and(frame, frame, mask = mask_obj)
+					mask_obj = cv2.bitwise_and(mask_roi, mask_fg)
+					obj_picture = cv2.bitwise_or(frame, frame, mask = mask_obj)
 					obj_picture = obj_picture[point1[1]:point2[1],point1[0]:point2[0]]
+					# classify object
+					obj_type = myClassifier.detectAndClassify(obj_picture)
+					obj_type_hist[obj_type] += 1
 					
 			# if the center moved too much (new object or noise)
 			else:
@@ -183,8 +189,41 @@ for i in range(n_images):
 	
 	center_rectangle_prev = center_rectangle
 	
-	# %% VISUALIZATION
+	# %% SOME NICE VISUALIZATION
 	
+	# draw semi-transparent box for visualizing classification and tracking info
+	vis_infobox_transparency = 0.3
+	vis_infobox_width = 300
+	vis_infobox = np.zeros((h,vis_infobox_width,3),dtype="uint8")
+	vis_infobox = cv2.addWeighted(frame[0:h,0:vis_infobox_width,:], vis_infobox_transparency, vis_infobox, (1-vis_infobox_transparency), 1.0)
+	frame[0:h,0:vis_infobox_width,:] = vis_infobox
+	
+	# draw classification information
+	vis_classification_y = 35
+	vis_obj_height = 100
+	vis_object_y = vis_classification_y+25
+	vis_object_x = 20
+	cv2.putText(frame, "CLASSIFICATION:", (10,vis_classification_y), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0,150,0), 1, cv2.LINE_AA)
+	vis_obj_picture = imutils.resize(obj_picture, height=vis_obj_height)
+	frame[vis_object_y:vis_object_y+vis_obj_height,vis_object_x:(vis_object_x+vis_obj_picture.shape[1])] = vis_obj_picture
+	cv2.putText(frame, obj_type, (20,vis_classification_y+vis_obj_height+50), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "Cup: "+str(obj_type_hist["cup"]), (30,vis_classification_y+vis_obj_height+75), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "Book: "+str(obj_type_hist["book"]), (30,vis_classification_y+vis_obj_height+95), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "Box: "+str(obj_type_hist["box"]), (30,vis_classification_y+vis_obj_height+115), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+
+	
+	# draw tracking information:
+	vis_tracking_y = 350
+	cv2.putText(frame, "TRACKING:", (10,vis_tracking_y), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0,150,0), 1, cv2.LINE_AA)
+	cv2.putText(frame, "2D Camera Coordinates: ", (20,vis_tracking_y+35), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "x: "+str(center_rectangle[0]), (30,vis_tracking_y+60), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "y: "+str(center_rectangle[1]), (30,vis_tracking_y+80), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "3D World Trangulation: ", (20,vis_tracking_y+115), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "x: "+str(0), (30,vis_tracking_y+140), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "y: "+str(0), (30,vis_tracking_y+160), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "z: "+str(0), (30,vis_tracking_y+180), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+
+
 	# prepare text and color depending on object status
 	if obj_present and obj_found:
 		roi_color = (0,255,0)
@@ -196,13 +235,16 @@ for i in range(n_images):
 		roi_color = (0,0,255)
 		roi_text = "Waiting object " + str(obj_count+1)
 	
-	# display bounding rectangle and center
+	# display roi rectangle and center
 	cv2.rectangle(frame, point1, point2, roi_color,2)
 	cv2.circle(frame, center_rectangle, 1, roi_color, 2)
 	# write object status above object
-	cv2.putText(frame, roi_text, (point1[0],point1[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, roi_color, 1, cv2.LINE_AA)
+	cv2.putText(frame, roi_text, (point1[0],point1[1]-10), cv2.FONT_HERSHEY_DUPLEX, 0.5, roi_color, 1, cv2.LINE_AA)
+	
+	
+	# show final result
 	cv2.imshow("Final Project", frame)
-	#cv2.imshow("Blackground Subtration", mask_fg)
+
 	
 	if cv2.waitKey(1) & 0xFF == ord('q'):
 		break
