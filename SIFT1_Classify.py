@@ -28,7 +28,7 @@ def createDescriptorToClassify(frame):
     #cv2.waitKey(2500)
     #cv2.destroyAllWindows()
 
-    print(len(des_sift))
+    #print(len(des_sift))
     return des_sift
 
 

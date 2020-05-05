@@ -16,7 +16,7 @@ rect_map_r_x = np.load(dir_calib + "map_r_x.npy")
 rect_map_r_y = np.load(dir_calib + "map_r_y.npy")
 
 # %% LOAD IMAGES
-dataset = '../datasets/conveyor_without_occlusions'
+dataset = '../datasets/conveyor_with_occlusions'
 images_left = glob.glob(dataset + '/left/*.png')
 images_right = glob.glob(dataset + '/right/*.png')
 
@@ -175,9 +175,9 @@ for i in range(n_images):
 	# if the object is present on the conveyor, but it was not found in the current frame (occlusion):
 	if obj_present and not obj_found:
 		# predict position with kalman filter
-		center_rectangle = (center_rectangle[0]-4,center_rectangle[1]+2)
-		point1 = (point1[0]-4,point1[1]+2)
-		point2 = (point2[0]-4,point2[1]+2)
+		center_rectangle = (center_rectangle[0]-5,center_rectangle[1]+2)
+		point1 = (point1[0]-5,point1[1]+2)
+		point2 = (point2[0]-5,point2[1]+2)
 	
 	# if object reaches the end of the conveyor:
 	if obj_present and point1[0]<=belt_x0:
