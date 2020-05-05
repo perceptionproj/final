@@ -17,10 +17,6 @@ clf = pickle.load(open('/home/jo/PycharmProjects/Perception/desc/Models + Codebo
 #desc= cv2.xfeatures2d.SURF_create(600) #TJEK THREDSHOLD !!!!
 desc = cv2.xfeatures2d.SIFT_create(contrastThreshold=0.01,edgeThreshold=20) #,contrastThreshold=0.01,edgeThreshold=20
 
-path =  "/home/jo/PycharmProjects/Perception/No_backround/object3.png"
-#path = "/home/jo/Downloads/"
-#path = "/home/jo/PycharmProjects/Perception/No_backround"
-#path = "/home/jo/PycharmProjects/Perception/cropped_obj"
 
 
 def createDescriptorToClassify(frame):
@@ -29,10 +25,10 @@ def createDescriptorToClassify(frame):
 
     only_object = cv2.drawKeypoints(frame, kp_sift, frame,
                                     flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    cv2.imshow('image', only_object)
+    #cv2.imshow('image', only_object)
     # cv2.imshow('image2',img2)
-    cv2.waitKey(2500)
-    cv2.destroyAllWindows()
+    #cv2.waitKey(2500)
+    #cv2.destroyAllWindows()
 
     print(len(des_sift))
     return des_sift
@@ -58,39 +54,11 @@ def sharpening(frame):
     #
     return cv2.filter2D(frame, -1, kernel_sharpening)
 
-"""
-def detectAndClassify():
-    img_files = get_imgfiles(path)
-    for i in img_files:
 
-        img = cv2.imread(i)
-        # img2 = cv2.imread(path2,0)
-        #cv2.imshow('image', img)
-        # cv2.imshow('image2',img2)
-        #cv2.waitKey(1500)
-        #cv2.destroyAllWindows()
-        descriptors = createDescriptorToClassify(img)
-        histogram = computeHistograms(codebook, descriptors)
-        histogram = histogram.reshape(1, -1)
-        # Classisy descriptor
-        A = int(clf.predict(histogram))
-        if A == 0:
-            print("BOOK")
-        elif A == 1:
-            print("BOX")
-        elif A == 2:
-            print("CUP")
-"""
-
-def detectAndClassify(path):
+def detectAndClassify(img):
 
 
-    img = cv2.imread(path)
-    # img2 = cv2.imread(path2,0)
-    #cv2.imshow('image', img)
-    # cv2.imshow('image2',img2)
-    #cv2.waitKey(1500)
-    #cv2.destroyAllWindows()
+
     descriptors = createDescriptorToClassify(img)
     histogram = computeHistograms(codebook, descriptors)
     histogram = histogram.reshape(1, -1)
@@ -104,7 +72,7 @@ def detectAndClassify(path):
         print("CUP")
 
 
-detectAndClassify(path)
+
 
 """
 
