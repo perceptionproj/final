@@ -78,19 +78,19 @@ def	matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_r
 	return mp_right_frame
 
 def kalmanInitialize(position):
-	
+	# initiale state of the point. speed is set to (-5,2) by default
 	x = np.array([[position[0]],
 				  [-5],
 				  [position[1]],
 				  [2]])
-	
+	# measurement uncertainty
 	R = 10
-
-	P = np.diagflat([[0],
+	# initial uncertainty
+	P = np.diagflat([[R],
 				     [R],
-				     [0],
+				     [R],
 				     [R]])
-	
+	# external motion (none)
 	u = np.zeros((4,1))
 	
 	F = np.array([[1, 1, 0, 0],
