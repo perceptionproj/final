@@ -42,6 +42,36 @@ def getRectangleCenter(p1,p2):
 	y = int(p1[1] + (p2[1] - p1[1])/2)
 	return (x,y)
 
+def	matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_right_off, frame, frame_right, gray, gray_right):
+	# region of interest to match the template within (Right frame coords)
+	roi_triang = [(mp_left_frame[0]+int(roi_left_off), mp_left_frame[1]-int(roi_h/2)), 
+		(mp_left_frame[0]+int(roi_right_off), mp_left_frame[1]+int(roi_h/2))]
+	cv2.rectangle(frame_right, roi_triang[0], roi_triang[1], (255,0,0), 1)
+
+	# drawing tamplate's boundaries on the left frame
+	cv2.rectangle(frame, (mp_left_frame[0]-int(template_w/2), mp_left_frame[1]-int(template_h/2)), 
+		(mp_left_frame[0]+int(template_w/2), mp_left_frame[1]+int(template_h/2)), (255,0,0), 1)
+	
+	# cropping the template
+	template = gray[mp_left_frame[1]-int(template_h/2): mp_left_frame[1]+int(template_h/2), 
+		mp_left_frame[0]-int(template_w/2): mp_left_frame[0]+int(template_w/2)]
+	
+	# cropping the roi from the right frame
+	cropped_roi_gray = gray_right[mp_left_frame[1]-int(roi_h/2):mp_left_frame[1]+int(roi_h/2), 
+		mp_left_frame[0]+int(roi_left_off):mp_left_frame[0]+int(roi_right_off)]
+
+	# matching template
+	res = cv2.matchTemplate(cropped_roi_gray, template, cv2.TM_CCORR_NORMED)
+	min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+	
+	# getting matched point position in roi coords
+	top_left = max_loc
+	mp_local = (top_left[0] + template.shape[1]/2, top_left[1] + template.shape[0]/2)
+
+	# mathced point position in right frame coords
+	mp_right_frame = (mp_local[0] + roi_triang[0][0], mp_local[1] + roi_triang[0][1])
+	return mp_right_frame
+
 
 # %% SETTINGS and VARIABLES DEFINITION
 h, w = cv2.imread(images_left[0]).shape[:2] # size of the images (pixels)
@@ -87,7 +117,17 @@ obj_found = False # (was it possible to localize the object on the scene?)
 # initialize object classification counter
 obj_type_hist = {"cup":0,"book":0,"box":0}
 
-# %% MAIN
+# triangulation constants
+template_h = 10
+template_w = 60
+
+# roi within tamplate is being matched
+roi_h = 10
+roi_left_off = -230
+roi_right_off = -30
+
+
+# %% TRACKING AND CLASSIFICATION
 
 for i in range(n_images):
 
@@ -186,9 +226,25 @@ for i in range(n_images):
 		point1 = point1_start
 		point2 = point2_start
 		center_rectangle = getRectangleCenter(point1, point2)
-	
+		
+
+	# %% TRIANGULATION
+
+	# point to match in the left frame coords
+	mp_left_frame = center_rectangle[0], center_rectangle[1]
+
+	# getting matched point in right frame coords. TO BE ORGANIZED.
+	mp_right_frame = matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_right_off, frame, frame_right, gray, gray_right)
+
+	# triangulate point
+	mp_3d_homogeneous = cv2.triangulatePoints(mtx_P_l, mtx_P_r, mp_left_frame, mp_right_frame)
+	mp_3d = cv2.transpose(mp_3d_homogeneous)
+	mp_3d = cv2.convertPointsFromHomogeneous(mp_3d)
+
+	# save previous roi center
 	center_rectangle_prev = center_rectangle
 	
+
 	# %% SOME NICE VISUALIZATION
 	
 	# draw semi-transparent box for visualizing classification and tracking info
@@ -211,19 +267,21 @@ for i in range(n_images):
 	cv2.putText(frame, "Book: "+str(obj_type_hist["book"]), (30,vis_classification_y+vis_obj_height+95), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "Box: "+str(obj_type_hist["box"]), (30,vis_classification_y+vis_obj_height+115), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 
-	
-	# draw tracking information:
+	# draw tracking information
+	x = round(mp_3d[0][0][0], 2)
+	y = round(mp_3d[0][0][1], 2)
+	z = round(mp_3d[0][0][2], 2)
 	vis_tracking_y = 350
 	cv2.putText(frame, "TRACKING:", (10,vis_tracking_y), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0,150,0), 1, cv2.LINE_AA)
 	cv2.putText(frame, "2D Camera Coordinates: ", (20,vis_tracking_y+35), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "x: "+str(center_rectangle[0]), (30,vis_tracking_y+60), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "y: "+str(center_rectangle[1]), (30,vis_tracking_y+80), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "3D World Trangulation: ", (20,vis_tracking_y+115), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "x: "+str(0), (30,vis_tracking_y+140), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "y: "+str(0), (30,vis_tracking_y+160), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "z: "+str(0), (30,vis_tracking_y+180), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "x: "+str(x)+"px", (30,vis_tracking_y+140), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "y: "+str(y)+"px", (30,vis_tracking_y+160), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "z: "+str(z)+"px", (30,vis_tracking_y+180), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 
-
+	# draw roi around object
 	# prepare text and color depending on object status
 	if obj_present and obj_found:
 		roi_color = (0,255,0)
@@ -234,19 +292,24 @@ for i in range(n_images):
 	elif not obj_present:
 		roi_color = (0,0,255)
 		roi_text = "Waiting object " + str(obj_count+1)
-	
 	# display roi rectangle and center
 	cv2.rectangle(frame, point1, point2, roi_color,2)
 	cv2.circle(frame, center_rectangle, 1, roi_color, 2)
 	# write object status above object
 	cv2.putText(frame, roi_text, (point1[0],point1[1]-10), cv2.FONT_HERSHEY_DUPLEX, 0.5, roi_color, 1, cv2.LINE_AA)
-	
-	
-	# show final result
-	cv2.imshow("Final Project", frame)
+	# showing matched point on the right frame
+	cv2.circle(frame_right, (int(mp_right_frame[0]), int(mp_right_frame[1])), 1, roi_color, 2)
 
-	
-	if cv2.waitKey(1) & 0xFF == ord('q'):
-		break
+
+	# concatenate left and right frame side by side
+	frame_left_right = np.hstack((frame, frame_right))
+	# show final result
+	scale = 0.6
+	cv2.imshow('Final Project', cv2.resize(frame_left_right,None,fx=scale,fy=scale))
+
+	# q to exit, space to pause
+	k = cv2.waitKey(1)
+	if k == ord('q'): break
+	if k == 32: cv2.waitKey()
 
 cv2.destroyAllWindows()
