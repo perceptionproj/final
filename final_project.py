@@ -42,21 +42,26 @@ def getRectangleCenter(p1,p2):
 	y = int(p1[1] + (p2[1] - p1[1])/2)
 	return (x,y)
 
+def getPointsFromCenter(c,w,h):
+	p1 = (int(c[0]-w/2),int(c[1]-h/2))
+	p2 = (int(c[0]+w/2),int(c[1]+h/2))
+	return (p1,p2)
+
 def	matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_right_off, frame, frame_right, gray, gray_right):
 	# region of interest to match the template within (Right frame coords)
 	roi_triang = [(mp_left_frame[0]+int(roi_left_off), mp_left_frame[1]-int(roi_h/2)), 
 		(mp_left_frame[0]+int(roi_right_off), mp_left_frame[1]+int(roi_h/2))]
 	cv2.rectangle(frame_right, roi_triang[0], roi_triang[1], (255,0,0), 1)
 
-	# drawing tamplate's boundaries on the left frame
+	# draw tamplate's boundaries on the left frame
 	cv2.rectangle(frame, (mp_left_frame[0]-int(template_w/2), mp_left_frame[1]-int(template_h/2)), 
 		(mp_left_frame[0]+int(template_w/2), mp_left_frame[1]+int(template_h/2)), (255,0,0), 1)
 	
-	# cropping the template
+	# crop the template
 	template = gray[mp_left_frame[1]-int(template_h/2): mp_left_frame[1]+int(template_h/2), 
 		mp_left_frame[0]-int(template_w/2): mp_left_frame[0]+int(template_w/2)]
 	
-	# cropping the roi from the right frame
+	# crop the roi from the right frame
 	cropped_roi_gray = gray_right[mp_left_frame[1]-int(roi_h/2):mp_left_frame[1]+int(roi_h/2), 
 		mp_left_frame[0]+int(roi_left_off):mp_left_frame[0]+int(roi_right_off)]
 
@@ -64,13 +69,53 @@ def	matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_r
 	res = cv2.matchTemplate(cropped_roi_gray, template, cv2.TM_CCORR_NORMED)
 	min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
 	
-	# getting matched point position in roi coords
+	# get matched point position in roi coords
 	top_left = max_loc
 	mp_local = (top_left[0] + template.shape[1]/2, top_left[1] + template.shape[0]/2)
 
 	# mathced point position in right frame coords
 	mp_right_frame = (mp_local[0] + roi_triang[0][0], mp_local[1] + roi_triang[0][1])
 	return mp_right_frame
+
+def kalmanInitialize(position):
+	
+	x = np.array([[position[0]],
+				  [-5],
+				  [position[1]],
+				  [2]])
+	
+	R = 10
+
+	P = np.diagflat([[0],
+				     [R],
+				     [0],
+				     [R]])
+	
+	u = np.zeros((4,1))
+	
+	F = np.array([[1, 1, 0, 0],
+			      [0, 1, 0, 0],
+				  [0, 0, 1, 1],
+				  [0, 0, 0, 1]])
+	
+	H = np.array([[1, 0, 0, 0],
+			      [0, 0, 1, 0]])
+	
+	return [x,P,u,F,H,R]
+
+def kalmanUpdate(x, P, Z, H, R):
+	I = np.identity(x.shape[0])
+	y = Z - np.dot(H,x)
+	S = np.linalg.multi_dot((H,P,H.T)) + R
+	K = np.linalg.multi_dot((P,H.T,np.linalg.pinv(S)))
+	x_u = x + np.dot(K,y)
+	P_u = np.dot((I - np.dot(K,H)),P)
+	return [x_u, P_u]
+	
+def kalmanPredict(x, P, F, u):
+	x_p = np.dot(F,x) + u
+	P_p = np.linalg.multi_dot((F,P,F.T))
+	return [x_p, P_p]
 
 
 # %% SETTINGS and VARIABLES DEFINITION
@@ -125,7 +170,6 @@ template_w = 60
 roi_h = 10
 roi_left_off = -230
 roi_right_off = -30
-
 
 # %% TRACKING AND CLASSIFICATION
 
@@ -190,10 +234,16 @@ for i in range(n_images):
 						obj_count += 1
 						# initialize classification counters
 						obj_type_hist = {"cup":0,"book":0,"box":0}
+						# initialize kalman state
+						km_x,km_P,km_u,km_F,km_H,km_R = kalmanInitialize(center_rectangle)
 					# update object status
 					obj_present = True
 					obj_found = True
-					# CLASSIFICATION
+					# update kalman
+					km_measurement = np.array([[center_rectangle[0]],[center_rectangle[1]]])
+					km_x, km_P = kalmanUpdate(km_x,km_P,km_measurement,km_H,km_R)
+					km_x, km_P = kalmanPredict(km_x,km_P,km_F,km_u)
+					# __ CLASSIFICATION __
 					# extract object from current frame
 					mask_roi = np.zeros((h,w),dtype='uint8')
 					mask_roi[point1[1]:point2[1],point1[0]:point2[0]] = 255
@@ -211,13 +261,12 @@ for i in range(n_images):
 				point2 = point2_start
 				center_rectangle = getRectangleCenter(point1, point2)
 
-	
 	# if the object is present on the conveyor, but it was not found in the current frame (occlusion):
 	if obj_present and not obj_found:
 		# predict position with kalman filter
-		center_rectangle = (center_rectangle[0]-5,center_rectangle[1]+2)
-		point1 = (point1[0]-5,point1[1]+2)
-		point2 = (point2[0]-5,point2[1]+2)
+		km_x, km_P = kalmanPredict(km_x,km_P,km_F,km_u)
+		center_rectangle = (int(km_x[0]),int(km_x[2]))
+		point1,point2 = getPointsFromCenter(center_rectangle,point2[0]-point1[0],point2[1]-point1[1])
 	
 	# if object reaches the end of the conveyor:
 	if obj_present and point1[0]<=belt_x0:
@@ -226,7 +275,7 @@ for i in range(n_images):
 		point1 = point1_start
 		point2 = point2_start
 		center_rectangle = getRectangleCenter(point1, point2)
-		
+
 
 	# %% TRIANGULATION
 
@@ -297,7 +346,7 @@ for i in range(n_images):
 	cv2.circle(frame, center_rectangle, 1, roi_color, 2)
 	# write object status above object
 	cv2.putText(frame, roi_text, (point1[0],point1[1]-10), cv2.FONT_HERSHEY_DUPLEX, 0.5, roi_color, 1, cv2.LINE_AA)
-	# showing matched point on the right frame
+	# show matched point on the right frame
 	cv2.circle(frame_right, (int(mp_right_frame[0]), int(mp_right_frame[1])), 1, roi_color, 2)
 
 
