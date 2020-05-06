@@ -277,7 +277,7 @@ for i in range(n_images):
 	cv2.putText(frame, "x: "+str(center_rectangle[0])+" px", (30,vis_tracking_y+60), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "y: "+str(center_rectangle[1])+" px", (30,vis_tracking_y+80), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "3D World Trangulation: ", (20,vis_tracking_y+115), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "x: "+str(x), (30,vis_tracking_y+140), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "x: "+str(x)+" m", (30,vis_tracking_y+140), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "y: "+str(y)+" m", (30,vis_tracking_y+160), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "z: "+str(z)+" m", (30,vis_tracking_y+180), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 
