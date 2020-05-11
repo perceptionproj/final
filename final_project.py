@@ -51,10 +51,12 @@ def	matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_r
 	# region of interest to match the template within (Right frame coords)
 	roi_triang = [(mp_left_frame[0]+int(roi_left_off), mp_left_frame[1]-int(roi_h/2)), 
 		(mp_left_frame[0]+int(roi_right_off), mp_left_frame[1]+int(roi_h/2))]
-	cv2.rectangle(frame_right, roi_triang[0], roi_triang[1], (255,0,0), 1)
+	if obj_present:
+		cv2.rectangle(frame_right, roi_triang[0], roi_triang[1], (255,0,0), 1)
 
 	# draw tamplate's boundaries on the left frame
-	cv2.rectangle(frame, (mp_left_frame[0]-int(template_w/2), mp_left_frame[1]-int(template_h/2)), 
+	if obj_present:
+		cv2.rectangle(frame, (mp_left_frame[0]-int(template_w/2), mp_left_frame[1]-int(template_h/2)), 
 		(mp_left_frame[0]+int(template_w/2), mp_left_frame[1]+int(template_h/2)), (255,0,0), 1)
 	
 	# crop the template
@@ -179,7 +181,7 @@ roi_left_off = -230
 roi_right_off = -30
 
 # %% TRACKING AND CLASSIFICATION
-out = cv2.VideoWriter('with.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 15, (2560,720))
+out = cv2.VideoWriter('video.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 15, (2560,720))
 
 
 
@@ -235,7 +237,7 @@ for i in range(n_images):
 			# TRIANGULATE ROI CENTER
 			# point to match in the left frame coords
 			mp_left_frame = center_rectangle
-			# getting matched point in right frame coords. TO BE ORGANIZED.
+			# getting matched point in right frame coords
 			mp_right_frame = matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_right_off, frame, frame_right, gray, gray_right)
 			# triangulate point
 			mp_3d_homogeneous = cv2.triangulatePoints(mtx_P_l, mtx_P_r, mp_left_frame, mp_right_frame)
@@ -283,7 +285,6 @@ for i in range(n_images):
 
 	# if the object is present on the conveyor, but it was not found in the current frame (occlusion):
 	if obj_present and not obj_found:
-		
 		# predict position with kalman filter
 		km_x, km_P = kalmanPredict(km_x,km_P,km_F,km_u)
 		km_x_reprojected = np.dot(mtx_P_l,np.vstack((np.array([km_x[0],km_x[2],km_x[4]]),1)))
@@ -300,19 +301,6 @@ for i in range(n_images):
 		center_rectangle = getRectangleCenter(point1, point2)
 
 
-	# %% TRIANGULATION
-
-	# point to match in the left frame coords
-	mp_left_frame = center_rectangle
-
-	# getting matched point in right frame coords
-	mp_right_frame = matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_right_off, frame, frame_right, gray, gray_right)
-
-	# triangulate point
-	mp_3d_homogeneous = cv2.triangulatePoints(mtx_P_l, mtx_P_r, mp_left_frame, mp_right_frame)
-	mp_3d = cv2.transpose(mp_3d_homogeneous)
-	mp_3d = cv2.convertPointsFromHomogeneous(mp_3d).squeeze()
-
 	# save previous roi center
 	center_rectangle_prev = center_rectangle
 
@@ -328,30 +316,37 @@ for i in range(n_images):
 	
 	# draw classification information
 	vis_classification_y = 35
-	vis_obj_height = 100
-	vis_object_y = vis_classification_y+25
-	vis_object_x = 20
 	cv2.putText(frame, "CLASSIFICATION:", (10,vis_classification_y), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0,150,0), 1, cv2.LINE_AA)
-	vis_obj_picture = imutils.resize(obj_picture, height=vis_obj_height)
-	frame[vis_object_y:vis_object_y+vis_obj_height,vis_object_x:(vis_object_x+vis_obj_picture.shape[1])] = vis_obj_picture
-	cv2.putText(frame, obj_type, (20,vis_classification_y+vis_obj_height+50), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "Cup: "+str(obj_type_hist["cup"]), (30,vis_classification_y+vis_obj_height+75), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "Book: "+str(obj_type_hist["book"]), (30,vis_classification_y+vis_obj_height+95), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "Box: "+str(obj_type_hist["box"]), (30,vis_classification_y+vis_obj_height+115), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	if obj_present:
+		vis_obj_height = 100
+		vis_object_y = vis_classification_y+25
+		vis_object_x = 20
+		vis_obj_picture = imutils.resize(obj_picture, height=vis_obj_height)
+		frame[vis_object_y:vis_object_y+vis_obj_height,vis_object_x:(vis_object_x+vis_obj_picture.shape[1])] = vis_obj_picture
+		cv2.putText(frame, obj_type, (20,vis_classification_y+vis_obj_height+50), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+		cv2.putText(frame, "Cup: "+str(obj_type_hist["cup"]), (30,vis_classification_y+vis_obj_height+75), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+		cv2.putText(frame, "Book: "+str(obj_type_hist["book"]), (30,vis_classification_y+vis_obj_height+95), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+		cv2.putText(frame, "Box: "+str(obj_type_hist["box"]), (30,vis_classification_y+vis_obj_height+115), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	else:
+		cv2.putText(frame, "Waiting object "+str(obj_count+1), (20,vis_classification_y+35), cv2.FONT_HERSHEY_DUPLEX, 0.4, (0,0,255), 1, cv2.LINE_AA)
+
 
 	# draw tracking information
-	x = round(mp_3d[0], 2)
-	y = round(mp_3d[1], 2)
-	z = round(mp_3d[2], 2)
 	vis_tracking_y = 350
 	cv2.putText(frame, "TRACKING:", (10,vis_tracking_y), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0,150,0), 1, cv2.LINE_AA)
-	cv2.putText(frame, "2D Camera Coordinates: ", (20,vis_tracking_y+35), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "x: "+str(center_rectangle[0])+" px", (30,vis_tracking_y+60), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "y: "+str(center_rectangle[1])+" px", (30,vis_tracking_y+80), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "3D World Trangulation: ", (20,vis_tracking_y+115), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "x: "+str(np.round(x/10,3))+" m", (30,vis_tracking_y+140), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "y: "+str(np.round(y/10,3))+" m", (30,vis_tracking_y+160), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "z: "+str(np.round(z/10,3))+" m", (30,vis_tracking_y+180), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	if obj_present:
+		x = round(mp_3d[0], 2)
+		y = round(mp_3d[1], 2)
+		z = round(mp_3d[2], 2)
+		cv2.putText(frame, "2D Camera Coordinates: ", (20,vis_tracking_y+35), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+		cv2.putText(frame, "x: "+str(center_rectangle[0])+" px", (30,vis_tracking_y+60), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+		cv2.putText(frame, "y: "+str(center_rectangle[1])+" px", (30,vis_tracking_y+80), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+		cv2.putText(frame, "3D World Trangulation: ", (20,vis_tracking_y+115), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+		cv2.putText(frame, "x: "+str(np.round(x/10,3))+" m", (30,vis_tracking_y+140), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+		cv2.putText(frame, "y: "+str(np.round(y/10,3))+" m", (30,vis_tracking_y+160), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+		cv2.putText(frame, "z: "+str(np.round(z/10,3))+" m", (30,vis_tracking_y+180), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	else:
+		cv2.putText(frame, "Waiting object "+str(obj_count+1), (20,vis_tracking_y+35), cv2.FONT_HERSHEY_DUPLEX, 0.4, (0,0,255), 1, cv2.LINE_AA)
 
 	# draw roi around object
 	# prepare text and color depending on object status
@@ -370,7 +365,8 @@ for i in range(n_images):
 	# write object status above object
 	cv2.putText(frame, roi_text, (point1[0],point1[1]-10), cv2.FONT_HERSHEY_DUPLEX, 0.5, roi_color, 1, cv2.LINE_AA)
 	# show matched point on the right frame
-	cv2.circle(frame_right, (int(mp_right_frame[0]), int(mp_right_frame[1])), 1, roi_color, 2)
+	if obj_present and obj_found:
+		cv2.circle(frame_right, (int(mp_right_frame[0]), int(mp_right_frame[1])), 1, roi_color, 2)
 
 
 	# concatenate left and right frame side by side
