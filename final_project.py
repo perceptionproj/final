@@ -78,28 +78,35 @@ def	matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_r
 	return mp_right_frame
 
 def kalmanInitialize(position):
-	# initiale state of the point. speed is set to (-5,2) by default
+	# initiale state of the point
 	x = np.array([[position[0]],
-				  [-5],
-				  [position[1]],
-				  [2]])
+				  [-0.15],
+				  [position[1]],    
+				  [0.04],
+				  [position[2]],
+				  [-0.1]])
 	# measurement uncertainty
 	R = 10
 	# initial uncertainty
 	P = np.diagflat([[R],
 				     [R],
 				     [R],
+					 [R],
+					 [R],
 				     [R]])
 	# external motion (none)
-	u = np.zeros((4,1))
+	u = np.zeros((6,1))
 	
-	F = np.array([[1, 1, 0, 0],
-			      [0, 1, 0, 0],
-				  [0, 0, 1, 1],
-				  [0, 0, 0, 1]])
+	F = np.array([[1, 1, 0, 0, 0, 0],
+			      [0, 1, 0, 0, 0, 0],
+				  [0, 0, 1, 1, 0, 0],
+				  [0, 0, 0, 1, 0, 0],
+				  [0, 0, 0, 0, 1, 1],
+				  [0, 0, 0, 0, 0, 1]])
 	
-	H = np.array([[1, 0, 0, 0],
-			      [0, 0, 1, 0]])
+	H = np.array([[1, 0, 0, 0, 0, 0],
+			      [0, 0, 1, 0, 0, 0],
+			      [0, 0, 0, 0, 1, 0]])
 	
 	return [x,P,u,F,H,R]
 
@@ -172,6 +179,9 @@ roi_left_off = -230
 roi_right_off = -30
 
 # %% TRACKING AND CLASSIFICATION
+out = cv2.VideoWriter('with.avi',cv2.VideoWriter_fourcc('M','J','P','G'), 15, (2560,720))
+
+
 
 for i in range(n_images):
 
@@ -222,6 +232,16 @@ for i in range(n_images):
 			# compute movement vector of the center
 			center_movement = np.array(center_rectangle)-np.array(center_rectangle_prev)
 			
+			# TRIANGULATE ROI CENTER
+			# point to match in the left frame coords
+			mp_left_frame = center_rectangle
+			# getting matched point in right frame coords. TO BE ORGANIZED.
+			mp_right_frame = matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_right_off, frame, frame_right, gray, gray_right)
+			# triangulate point
+			mp_3d_homogeneous = cv2.triangulatePoints(mtx_P_l, mtx_P_r, mp_left_frame, mp_right_frame)
+			mp_3d = cv2.transpose(mp_3d_homogeneous)
+			mp_3d = cv2.convertPointsFromHomogeneous(mp_3d).squeeze()
+			
 			# if the center didn't move too much (not a new object or noise)
 			if (np.linalg.norm(center_movement)<200):
 				# check that object is on the conveyor
@@ -235,13 +255,13 @@ for i in range(n_images):
 						# initialize classification counters
 						obj_type_hist = {"cup":0,"book":0,"box":0}
 						# initialize kalman state
-						km_x,km_P,km_u,km_F,km_H,km_R = kalmanInitialize(center_rectangle)
+						km_x,km_P,km_u,km_F,km_H,km_R = kalmanInitialize(mp_3d)
 					# update object status
 					obj_present = True
 					obj_found = True
-					# update kalman
-					km_measurement = np.array([[center_rectangle[0]],[center_rectangle[1]]])
-					km_x, km_P = kalmanUpdate(km_x,km_P,km_measurement,km_H,km_R)
+					# update/predict kalman
+					km_measurement = np.array([[mp_3d[0]],[mp_3d[1]],[mp_3d[2]]])
+					# km_x, km_P = kalmanUpdate(km_x,km_P,km_measurement,km_H,km_R) !! NOT IDEAL !! to be fixed
 					km_x, km_P = kalmanPredict(km_x,km_P,km_F,km_u)
 					# __ CLASSIFICATION __
 					# extract object from current frame
@@ -263,9 +283,12 @@ for i in range(n_images):
 
 	# if the object is present on the conveyor, but it was not found in the current frame (occlusion):
 	if obj_present and not obj_found:
+		
 		# predict position with kalman filter
 		km_x, km_P = kalmanPredict(km_x,km_P,km_F,km_u)
-		center_rectangle = (int(km_x[0]),int(km_x[2]))
+		km_x_reprojected = np.dot(mtx_P_l,np.vstack((np.array([km_x[0],km_x[2],km_x[4]]),1)))
+		km_x_reprojected = km_x_reprojected/km_x_reprojected[2]
+		center_rectangle = (int(km_x_reprojected[0]),int(km_x_reprojected[1]))
 		point1,point2 = getPointsFromCenter(center_rectangle,point2[0]-point1[0],point2[1]-point1[1])
 	
 	# if object reaches the end of the conveyor:
@@ -280,19 +303,19 @@ for i in range(n_images):
 	# %% TRIANGULATION
 
 	# point to match in the left frame coords
-	mp_left_frame = center_rectangle[0], center_rectangle[1]
+	mp_left_frame = center_rectangle
 
-	# getting matched point in right frame coords. TO BE ORGANIZED.
+	# getting matched point in right frame coords
 	mp_right_frame = matchPoint(mp_left_frame, template_h, template_w, roi_h, roi_left_off, roi_right_off, frame, frame_right, gray, gray_right)
 
 	# triangulate point
 	mp_3d_homogeneous = cv2.triangulatePoints(mtx_P_l, mtx_P_r, mp_left_frame, mp_right_frame)
 	mp_3d = cv2.transpose(mp_3d_homogeneous)
-	mp_3d = cv2.convertPointsFromHomogeneous(mp_3d)
+	mp_3d = cv2.convertPointsFromHomogeneous(mp_3d).squeeze()
 
 	# save previous roi center
 	center_rectangle_prev = center_rectangle
-	
+
 
 	# %% SOME NICE VISUALIZATION
 	
@@ -317,18 +340,18 @@ for i in range(n_images):
 	cv2.putText(frame, "Box: "+str(obj_type_hist["box"]), (30,vis_classification_y+vis_obj_height+115), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 
 	# draw tracking information
-	x = round(mp_3d[0][0][0], 2)
-	y = round(mp_3d[0][0][1], 2)
-	z = round(mp_3d[0][0][2], 2)
+	x = round(mp_3d[0], 2)
+	y = round(mp_3d[1], 2)
+	z = round(mp_3d[2], 2)
 	vis_tracking_y = 350
 	cv2.putText(frame, "TRACKING:", (10,vis_tracking_y), cv2.FONT_HERSHEY_DUPLEX, 0.7, (0,150,0), 1, cv2.LINE_AA)
 	cv2.putText(frame, "2D Camera Coordinates: ", (20,vis_tracking_y+35), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "x: "+str(center_rectangle[0])+" px", (30,vis_tracking_y+60), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "y: "+str(center_rectangle[1])+" px", (30,vis_tracking_y+80), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 	cv2.putText(frame, "3D World Trangulation: ", (20,vis_tracking_y+115), cv2.FONT_HERSHEY_DUPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "x: "+str(x)+" m", (30,vis_tracking_y+140), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "y: "+str(y)+" m", (30,vis_tracking_y+160), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
-	cv2.putText(frame, "z: "+str(z)+" m", (30,vis_tracking_y+180), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "x: "+str(np.round(x/10,3))+" m", (30,vis_tracking_y+140), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "y: "+str(np.round(y/10,3))+" m", (30,vis_tracking_y+160), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
+	cv2.putText(frame, "z: "+str(np.round(z/10,3))+" m", (30,vis_tracking_y+180), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1, cv2.LINE_AA)
 
 	# draw roi around object
 	# prepare text and color depending on object status
@@ -355,6 +378,8 @@ for i in range(n_images):
 	# show final result
 	scale = 0.6
 	cv2.imshow('Final Project', cv2.resize(frame_left_right,None,fx=scale,fy=scale))
+	out.write(frame_left_right)
+
 
 	# q to exit, space to pause
 	k = cv2.waitKey(1)
@@ -362,3 +387,4 @@ for i in range(n_images):
 	if k == 32: cv2.waitKey()
 
 cv2.destroyAllWindows()
+out.release()
